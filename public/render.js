@@ -28,6 +28,10 @@ const FIELD_LABELS = {
 const SKIP = new Set(["WidthDefinition", "Col", "StandardNameCategoryCode",
   "CategoryDefinition", "FrequencyDefinition", "BrandNameInHiragana", "NameInHiragana"]);
 
+// 規制区分コード → 名称。PMDA の HTML 表示と XML を突き合わせて確認できたものだけを載せる
+// （ここにないコードは「コード N」と表示する）
+const REGULATORY_CODES = { 2: "劇薬", 12: "処方箋医薬品", 13: "生物由来製品" };
+
 const COMBI_COLUMNS = [["DrugName", "薬剤名等"], ["ClinSymptomsAndMeasures", "臨床症状・措置方法"],
   ["MechanismAndRiskFactors", "機序・危険因子"]];
 
@@ -130,11 +134,54 @@ export class PackageInsert {
     return frag;
   }
 
-  renderApproval() {
+  // 冒頭部分（ア〜キ）の描画。tag は item-master.js の識別子
+  renderHeaderItem(tag) {
     const frag = document.createDocumentFragment();
-    const appr = kid(this.root, "ApprovalEtc");
-    if (appr) for (const n of appr.childNodes) this.renderNode(n, frag);
+    switch (tag) {
+      case "_Revision":
+        for (const r of this.root.querySelectorAll("DateOfPreparationOrRevision > PreparationOrRevision")) {
+          const line = h("div", "detail");
+          line.append(`${r.querySelector("YearMonth")?.textContent ?? ""} ${textOf(kid(r, "Version"))}`.trim());
+          if (r.id) line.append(h("span", "muted", `（${r.id}）`));
+          frag.append(line);
+        }
+        break;
+      case "_Sccj":
+        for (const n of this.root.querySelectorAll("Sccj > SccjNo")) frag.append(h("div", "detail", n.textContent.trim()));
+        break;
+      case "_Approval": this.renderBrandParts(frag, ["ApprovalAndLicenseNo", "StartingDateOfMarketing"]); break;
+      case "_Storage": this.renderBrandParts(frag, ["Storage"]); break;
+      case "_TherapeuticClass": this.renderChildren(kid(this.root, "TherapeuticClassification") || h("i"), frag); break;
+      case "_Regulatory": this.renderBrandParts(frag, ["RegulatoryClassification"]); break;
+      case "_Name": {
+        this.renderBrandParts(frag, ["ApprovalBrandName", "TrademarkInEnglish", "StandardName"]);
+        const g = kid(this.root, "GenericName");
+        if (g) {
+          const row = h("div", "field");
+          row.append(h("span", "field-label", "一般的名称"));
+          const val = h("div", "field-value");
+          this.renderChildren(g, val);
+          row.append(val);
+          frag.append(row);
+        }
+        break;
+      }
+      default: break;
+    }
     return frag;
+  }
+
+  // 販売名ごとの明細（DetailBrandName）から指定した要素だけを描画する
+  renderBrandParts(parent, tags) {
+    const many = this.brands.size > 1;
+    for (const b of this.root.getElementsByTagNameNS(NS, "DetailBrandName")) {
+      const parts = [...b.children].filter((c) => tags.includes(c.localName));
+      if (!parts.length) continue;
+      const box = h("div", "brand-block");
+      if (many && !tags.includes("ApprovalBrandName")) box.append(h("div", "brand-name", this.brands.get(b.id)));
+      for (const p of parts) this.renderNode(p, box);
+      parent.append(box);
+    }
   }
 
   renderNode(node, parent) {
@@ -224,7 +271,11 @@ export class PackageInsert {
       }
       case "TblBlock": into("div", "tbl-block"); return;
       // 規制区分はコードのみ収載されている（名称との対応表は未確認のためコードを表示）
-      case "RegulatoryClassificationCode": parent.append(h("span", "code", `コード ${el.textContent.trim()}`)); return;
+      case "RegulatoryClassificationCode": {
+        const code = el.textContent.trim();
+        parent.append(h("span", "code", REGULATORY_CODES[code] || `コード ${code}`));
+        return;
+      }
       case "SimpleTable": this.renderTable(el, parent); return;
       case "SimpTblFoot": into("div", "tbl-foot"); return;
       case "OtherAdverse": this.renderAdverseMatrix(el, parent); return;

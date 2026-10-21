@@ -132,6 +132,7 @@ main { padding: 0 1rem 8rem; }
 .grid {
   display: grid;
   grid-template-columns: var(--label-w) repeat(var(--cols, 1), minmax(var(--col-min), 1fr));
+  position: relative; /* 項目へ移動のスクロール位置を、表の中の位置（offsetTop）で計算するため */
   overflow: auto;
   height: calc(100vh - 9.5rem);
   min-height: 20rem;
@@ -150,18 +151,45 @@ main { padding: 0 1rem 8rem; }
 .col-links { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.2rem; font-size: 0.85rem; }
 .col-remove { margin-left: auto; padding: 0.05rem 0.5rem; font-size: 0.8rem; }
 
-.row-label { background: var(--label-bg); }
+.row-label { background: var(--label-bg); font-size: 0.85rem; line-height: 1.4; display: flex; gap: 0.4rem; align-items: flex-start; }
 .row-label.sub { background: var(--sub-bg); }
-.row-toggle { border: none; background: none; padding: 0; text-align: left; display: flex; gap: 0.4rem; width: 100%; font-weight: 600; font-size: 0.9rem; line-height: 1.4; }
-/* 長い行でも項目名が見えるよう、見出し行の直下に貼り付ける */
-.row-toggle { position: sticky; top: calc(var(--head-h, 0px) + 0.5rem); }
-.row-label.sub .row-toggle { padding-left: 0.6rem; font-weight: 500; }
-.row-num { color: var(--accent); min-width: 2.2rem; flex: none; }
-.row-label.collapsed .row-toggle::after { content: "＋"; margin-left: auto; color: var(--muted); }
-.body.collapsed { max-height: 4.8em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
+.row-label .row-name { color: var(--muted); }
+.row-num { color: var(--accent); min-width: 2.2rem; flex: none; font-weight: 600; }
+
+/* 項目の見出し行（表の全幅）。クリックで開閉する */
+.sec-head {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--head-bg);
+  padding: 0.35rem 0.7rem;
+}
+.sec-head.level2 { background: var(--sub-bg); padding-left: 2rem; }
+.sec-toggle {
+  position: sticky;
+  left: 0.7rem;
+  border: none;
+  background: none;
+  padding: 0.1rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 700;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  text-align: left;
+}
+.sec-head.level2 .sec-toggle { font-weight: 600; font-size: 0.9rem; left: 2rem; }
+.chevron::before { content: "▶"; display: inline-block; font-size: 0.7em; color: var(--muted); transition: transform 0.15s; }
+.sec-head.open .chevron::before { transform: rotate(90deg); }
+.badge { font-size: 0.72rem; font-weight: normal; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 0.5rem; white-space: nowrap; }
+.same-badge { color: var(--accent); border-color: var(--accent); }
+.open-children { position: sticky; left: 100%; margin-left: auto; font-size: 0.75rem; padding: 0.05rem 0.5rem; white-space: nowrap; }
+.sec-head:not(.open) .open-children { visibility: hidden; }
+.folded { display: none !important; }
 .body.none { color: var(--muted); }
-.heading-only { padding-top: 0.3rem; padding-bottom: 0.3rem; background: var(--label-bg); }
-.cell.same:not(.row-label) { background: color-mix(in srgb, var(--surface) 92%, var(--accent)); }
+.cell.same.body { background: color-mix(in srgb, var(--surface) 92%, var(--accent)); }
 .grid.hide-same .same { display: none; }
 
 /* ---------- 添付文書本文 */
