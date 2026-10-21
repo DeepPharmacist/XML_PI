@@ -1,4 +1,5 @@
 import { EFFECT_GROUPS } from "./effects.js";
+import { ITEM_MASTER, itemKey } from "./item-master.js";
 import { PackageInsert, h } from "./render.js";
 
 const MAX_ITEMS = 5;
@@ -264,13 +265,19 @@ function renderCompare(docs) {
     { key: "_class", label: ["", "薬効分類名"], render: (d) => document.createTextNode(d.therapeuticClass) },
     { key: "_approval", label: ["", "承認・貯法等"], render: (d) => d.renderApproval() },
   ];
+  // 行の順序と番号・名称は項目マスタに従う。マスタにない要素は、XML 上の出現位置に挿入する。
   const secMaps = docs.map((d) => d.sections());
-  for (const key of mergeKeys(secMaps.map((m) => [...m.keys()]))) {
-    const first = secMaps.find((m) => m.has(key)).get(key);
+  const masterKeys = ITEM_MASTER.map(itemKey);
+  const showAll = $("#show-all").checked;
+  for (const key of mergeKeys([masterKeys, ...secMaps.map((m) => [...m.keys()])])) {
+    const found = secMaps.find((m) => m.has(key));
+    const master = ITEM_MASTER[masterKeys.indexOf(key)];
+    if (!found && !showAll) continue;
     rows.push({
       key,
-      label: first.label,
-      sub: Boolean(first.parent),
+      label: master ? [master.no, master.name] : found.get(key).label,
+      sub: key.includes("/"),
+      present: Boolean(found),
       render: (d, i) => (secMaps[i].has(key) ? d.renderSection(secMaps[i].get(key)) : null),
     });
   }
@@ -297,7 +304,8 @@ function renderCompare(docs) {
     });
     // 中身が全部「記載なし」の親行（小項目だけの章）は見出しとして薄く表示する
     const allEmpty = cells.every((c) => c.classList.contains("none"));
-    if (allEmpty && !row.key.startsWith("_")) {
+    const headingOnly = allEmpty && row.present;
+    if (headingOnly) {
       label.classList.add("heading-only");
       cells.forEach((c) => { c.classList.add("heading-only"); c.replaceChildren(); });
     }
@@ -314,7 +322,7 @@ function renderCompare(docs) {
     });
     grid.append(...group);
 
-    if (!allEmpty || row.key.startsWith("_")) {
+    if (!headingOnly) {
       const o = h("option", null, `${row.sub ? "　" : ""}${num ? num + " " : ""}${name}`);
       o.value = id;
       nav.append(o);
@@ -365,6 +373,7 @@ function init() {
   $("#compare-btn").addEventListener("click", () => showCompare(state.selected.map((s) => s.docId)));
   $("#back-btn").addEventListener("click", showSelect);
   $("#hide-same").addEventListener("change", applyHideSame);
+  $("#show-all").addEventListener("change", () => { if (state.docs.length) renderCompare(state.docs); });
   $("#expand-all").addEventListener("click", () => setAllCollapsed(false));
   $("#collapse-all").addEventListener("click", () => setAllCollapsed(true));
   $("#jump").addEventListener("change", (e) => {
