@@ -5,6 +5,7 @@ import { PackageInsert, h } from "./render.js";
 const MAX_ITEMS = 5;
 const PMDA = "https://www.pmda.go.jp/PmdaSearch/iyakuDetail";
 const STORE_KEY = "xmlpi.selected";
+const OPEN_KEY = "xmlpi.open";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -12,6 +13,7 @@ const state = {
   selected: loadSelected(),  // [{docId, brand, generic, company, updated}]
   lastQuery: null,
   docs: [],                  // 比較中の PackageInsert
+  open: loadOpen(),          // 開いている見出し（既定はすべて折りたたみ）
 };
 
 // ------------------------------------------------------------ 保存（この端末のブラウザのみ）
@@ -260,39 +262,33 @@ function renderCompare(docs) {
     grid.append(c);
   }
 
-  const rows = [
-    { key: "_generic", label: ["", "一般名"], render: (d) => document.createTextNode(d.genericName) },
-    { key: "_class", label: ["", "薬効分類名"], render: (d) => document.createTextNode(d.therapeuticClass) },
-    { key: "_approval", label: ["", "承認・貯法等"], render: (d) => d.renderApproval() },
-  ];
   // 行の順序と番号・名称は項目マスタに従う。マスタにない要素は、XML 上の出現位置に挿入する。
   const secMaps = docs.map((d) => d.sections());
   const masterKeys = ITEM_MASTER.map(itemKey);
   const showAll = $("#show-all").checked;
+  const rows = [];
   for (const key of mergeKeys([masterKeys, ...secMaps.map((m) => [...m.keys()])])) {
-    const found = secMaps.find((m) => m.has(key));
     const master = ITEM_MASTER[masterKeys.indexOf(key)];
+    if (master?.header) {
+      rows.push({ key, no: master.no, name: master.name, top: key, level: 1,
+        render: (d) => d.renderHeaderItem(master.tag) });
+      continue;
+    }
+    const found = secMaps.find((m) => m.has(key));
     if (!found && !showAll) continue;
+    const [no, name] = master ? [master.no, master.name] : found.get(key).label;
     rows.push({
-      key,
-      label: master ? [master.no, master.name] : found.get(key).label,
-      sub: key.includes("/"),
-      present: Boolean(found),
+      key, no, name,
+      top: key.split("/")[0],
+      level: key.includes("/") ? 2 : 1,
       render: (d, i) => (secMaps[i].has(key) ? d.renderSection(secMaps[i].get(key)) : null),
     });
   }
 
+  // 1 周目: 各品目の内容を描画し、記載の有無を調べる
   for (const row of rows) {
-    const id = `row-${row.key.replace(/\W/g, "_")}`;
-    const [num, name] = row.label;
-    const label = h("div", `cell row-label sticky-left${row.sub ? " sub" : ""}`);
-    label.id = id;
-    const toggle = h("button", "row-toggle");
-    toggle.append(h("span", "row-num", num), h("span", "row-name", name));
-    toggle.title = "クリックで折りたたみ／展開";
-    label.append(toggle);
-    const cells = docs.map((d, i) => {
-      const c = h("div", `cell body${row.sub ? " sub" : ""}`);
+    row.cells = docs.map((d, i) => {
+      const c = h("div", `cell body${row.level === 2 ? " sub" : ""}`);
       const content = row.render(d, i);
       if (content && (content.nodeType === Node.TEXT_NODE ? content.data.trim() : content.childNodes.length)) {
         c.append(content);
@@ -302,33 +298,65 @@ function renderCompare(docs) {
       }
       return c;
     });
-    // 中身が全部「記載なし」の親行（小項目だけの章）は見出しとして薄く表示する
-    const allEmpty = cells.every((c) => c.classList.contains("none"));
-    const headingOnly = allEmpty && row.present;
-    if (headingOnly) {
-      label.classList.add("heading-only");
-      cells.forEach((c) => { c.classList.add("heading-only"); c.replaceChildren(); });
-    }
-    const texts = cells.map((c) => c.textContent.replace(/\s+/g, ""));
-    const same = docs.length > 1 && texts.every((t) => t === texts[0]);
-    const group = [label, ...cells];
-    for (const el of group) {
-      el.dataset.row = row.key;
-      if (same) el.classList.add("same");
-    }
-    toggle.addEventListener("click", () => {
-      const collapsed = !label.classList.contains("collapsed");
-      for (const el of group) el.classList.toggle("collapsed", collapsed);
-    });
-    grid.append(...group);
+    row.filled = row.cells.map((c) => !c.classList.contains("none"));
+    const texts = row.cells.map((c) => c.textContent.replace(/\s+/g, ""));
+    row.same = docs.length > 1 && row.filled.some(Boolean) && texts.every((t) => t === texts[0]);
+  }
+  for (const row of rows) {
+    row.children = rows.filter((r) => r.level === 2 && r.top === row.key);
+    // 親項目の記載の有無は、小項目も含めて数える
+    row.filledAny = docs.map((_, i) => row.filled[i] || row.children.some((c) => c.filled[i]));
+  }
 
-    if (!headingOnly) {
-      const o = h("option", null, `${row.sub ? "　" : ""}${num ? num + " " : ""}${name}`);
-      o.value = id;
-      nav.append(o);
+  // 2 周目: 見出し行と内容行を並べる
+  for (const row of rows) {
+    const id = `row-${row.key.replace(/\W/g, "_")}`;
+    const head = h("div", `cell sec-head level${row.level}`);
+    head.id = id;
+    head.dataset.top = row.top;
+    head.dataset.key = row.key;
+    head.dataset.level = row.level;
+    const btn = h("button", "sec-toggle");
+    btn.append(h("span", "chevron"), h("span", "row-num", row.no), h("span", "row-name", row.name));
+    const n = (row.level === 1 ? row.filledAny : row.filled).filter(Boolean).length;
+    btn.append(h("span", "badge", n === 0 ? "記載なし" : `${n}/${docs.length} 品目に記載`));
+    if (row.same) btn.append(h("span", "badge same-badge", "全品目同じ"));
+    btn.addEventListener("click", () => toggleOpen(row.key));
+    head.append(btn);
+    if (row.level === 1 && row.children.length) {
+      const all = h("button", "open-children", "小項目をすべて開く");
+      all.addEventListener("click", () => {
+        state.open.add(row.key);
+        for (const c of row.children) state.open.add(c.key);
+        applyOpen();
+      });
+      head.append(all);
     }
+    grid.append(head);
+
+    // 小項目を持つ親項目で、親自体の記載がどの品目にもなければ内容行は作らない
+    if (row.children.length && !row.filled.some(Boolean)) continue;
+    const label = h("div", `cell row-label sticky-left${row.level === 2 ? " sub" : ""}`);
+    label.append(h("span", "row-num", row.no), h("span", "row-name", row.name));
+    const group = [label, ...row.cells];
+    for (const el of group) {
+      el.dataset.top = row.top;
+      el.dataset.key = row.key;
+      el.dataset.level = row.level;
+      el.classList.add("content");
+      if (row.same) el.classList.add("same");
+    }
+    grid.append(...group);
+  }
+
+  // 項目へ移動（見出しの一覧）
+  for (const row of rows) {
+    const o = h("option", null, `${row.level === 2 ? "　" : ""}${row.no} ${row.name}`);
+    o.value = row.key;
+    nav.append(o);
   }
   applyHideSame();
+  applyOpen();
   const head = grid.querySelector(".col-head");
   if (head) grid.style.setProperty("--head-h", `${head.offsetHeight}px`);
 }
@@ -337,10 +365,49 @@ function applyHideSame() {
   $("#grid").classList.toggle("hide-same", $("#hide-same").checked);
 }
 
-function setAllCollapsed(collapsed) {
-  for (const el of document.querySelectorAll("#grid .row-label, #grid .body")) {
-    el.classList.toggle("collapsed", collapsed);
+// 開いている見出しのキー（大項目は要素名、小項目は「親/子」）。この端末のブラウザに保存する
+function loadOpen() {
+  try {
+    const v = JSON.parse(localStorage.getItem(OPEN_KEY) || "[]");
+    return new Set(Array.isArray(v) ? v : []);
+  } catch { return new Set(); }
+}
+
+function saveOpen() {
+  try { localStorage.setItem(OPEN_KEY, JSON.stringify([...state.open])); } catch { /* 保存できなくても動作する */ }
+}
+
+function toggleOpen(key) {
+  if (state.open.has(key)) state.open.delete(key); else state.open.add(key);
+  applyOpen();
+}
+
+// 見出しの開閉状態を表示に反映する
+//   大項目の見出し: 常に表示 / 小項目の見出し: 大項目が開いていれば表示
+//   内容行: 自分の見出しと（小項目なら）大項目の両方が開いていれば表示
+function applyOpen() {
+  saveOpen();
+  for (const el of document.querySelectorAll("#grid [data-key]")) {
+    const topOpen = state.open.has(el.dataset.top);
+    const selfOpen = state.open.has(el.dataset.key);
+    const isHead = el.classList.contains("sec-head");
+    const sub = el.dataset.level === "2";
+    let visible;
+    if (isHead) visible = !sub || topOpen;
+    else visible = topOpen && (!sub || selfOpen);
+    el.classList.toggle("folded", !visible);
+    if (isHead) {
+      el.classList.toggle("open", selfOpen);
+      el.querySelector(".sec-toggle").setAttribute("aria-expanded", String(selfOpen));
+    }
   }
+}
+
+function setAllOpen(open) {
+  state.open = open
+    ? new Set([...document.querySelectorAll("#grid .sec-head")].map((el) => el.dataset.key))
+    : new Set();
+  applyOpen();
 }
 
 // ------------------------------------------------------------ 画面切り替え
@@ -374,11 +441,16 @@ function init() {
   $("#back-btn").addEventListener("click", showSelect);
   $("#hide-same").addEventListener("change", applyHideSame);
   $("#show-all").addEventListener("change", () => { if (state.docs.length) renderCompare(state.docs); });
-  $("#expand-all").addEventListener("click", () => setAllCollapsed(false));
-  $("#collapse-all").addEventListener("click", () => setAllCollapsed(true));
+  $("#expand-all").addEventListener("click", () => setAllOpen(true));
+  $("#collapse-all").addEventListener("click", () => setAllOpen(false));
   $("#jump").addEventListener("change", (e) => {
-    const target = document.getElementById(e.target.value);
+    const key = e.target.value;
+    const target = document.querySelector(`#grid .sec-head[data-key="${CSS.escape(key)}"]`);
     if (target) {
+      // 移動先の見出しを開き（小項目なら大項目も開く）、見出しが表の上端に来るようにスクロールする
+      state.open.add(target.dataset.top);
+      state.open.add(key);
+      applyOpen();
       const grid = $("#grid");
       const head = grid.querySelector(".col-head");
       grid.scrollTo({ top: target.offsetTop - (head ? head.offsetHeight : 0), behavior: "smooth" });

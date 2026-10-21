@@ -8,9 +8,19 @@
 //              4.3 項目名一覧（2019年5月）で開始タグが示されているもの
 //   "PMDA-XML" 手引きでは開始タグが空欄のため、PMDA が公開している実際の XML で要素名を確認したもの
 //
-// parent を持つ項目は、親項目の行の下に小項目の行として表示する。
+//   "記載要領" 冒頭部分（ア〜キ）。XML では複数の要素（販売名ごとの明細など）にまたがるため、
+//              tag は本アプリ内の識別子（"_" 始まり）で、表示は render.js の renderHeaderItem() が担う
+//
+// parent を持つ項目は、親項目の見出しの下に小項目として入れ子で表示する。
 
 export const ITEM_MASTER = [
+  { no: "ア", name: "作成又は改訂年月", tag: "_Revision", header: true, source: "記載要領" },
+  { no: "イ", name: "日本標準商品分類番号", tag: "_Sccj", header: true, source: "記載要領" },
+  { no: "ウ", name: "承認番号、販売開始年月", tag: "_Approval", header: true, source: "記載要領" },
+  { no: "エ", name: "貯法、有効期間", tag: "_Storage", header: true, source: "記載要領" },
+  { no: "オ", name: "薬効分類名", tag: "_TherapeuticClass", header: true, source: "記載要領" },
+  { no: "カ", name: "規制区分", tag: "_Regulatory", header: true, source: "記載要領" },
+  { no: "キ", name: "名称", tag: "_Name", header: true, source: "記載要領" },
   { no: "1", name: "警告", tag: "Warnings", source: "JPMA" },
   { no: "2", name: "禁忌（次の患者には投与しないこと）", tag: "ContraIndications", source: "JPMA" },
   { no: "3", name: "組成・性状", tag: "CompositionAndProperty", source: "JPMA" },
