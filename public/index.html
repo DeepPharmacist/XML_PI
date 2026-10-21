@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>添付文書 比較ビューア（試作）</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1>添付文書 比較ビューア <small>試作版・個人利用</small></h1>
+    <p class="source">出典: 独立行政法人 医薬品医療機器総合機構（PMDA）「医療用医薬品 情報検索」。表示内容は PMDA の XML 添付文書を本アプリで再構成したものです。正式な内容は各列の PDF／PMDA リンクで確認してください。</p>
+  </header>
+
+  <main>
+    <!-- ステップ 1: 検索・選択 -->
+    <section id="view-select" hidden>
+      <form id="search-form" class="search-form">
+        <div class="field-row">
+          <label for="q">医薬品名</label>
+          <input id="q" type="search" maxlength="80" placeholder="例: ロキソニン、アムロジピン" autocomplete="off">
+        </div>
+        <div class="field-row inline">
+          <label for="target">対象</label>
+          <select id="target">
+            <option value="1">一般名及び販売名</option>
+            <option value="2">一般名のみ</option>
+            <option value="3">販売名のみ</option>
+          </select>
+          <label for="match">一致</label>
+          <select id="match">
+            <option value="1">部分一致</option>
+            <option value="2">前方一致</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <label for="effect">薬効分類</label>
+          <select id="effect">
+            <option value="">指定しない</option>
+          </select>
+        </div>
+        <div class="field-row actions">
+          <button id="search-btn" type="submit" class="primary">PMDA で検索</button>
+          <span id="search-status" class="status" role="status"></span>
+        </div>
+      </form>
+      <div id="results"></div>
+    </section>
+
+    <!-- ステップ 3: 並列表示 -->
+    <section id="view-compare" hidden>
+      <div class="toolbar">
+        <button id="back-btn">← 品目選択に戻る</button>
+        <select id="jump" aria-label="項目へ移動"></select>
+        <button id="expand-all">すべて展開</button>
+        <button id="collapse-all">すべて折りたたむ</button>
+        <label class="check"><input id="hide-same" type="checkbox"> 全品目で同じ内容の行を隠す</label>
+      </div>
+      <!-- ステップ 2: XML 取得の進行状況 -->
+      <div id="progress-box" class="progress-box" hidden>
+        <ul id="progress"></ul>
+      </div>
+      <div id="grid" class="grid"></div>
+    </section>
+  </main>
+
+  <!-- 選択中の品目（最大 5） -->
+  <aside id="tray" class="tray empty">
+    <div class="tray-head">選択中 <span id="tray-count">0 / 5</span></div>
+    <ul id="tray-list"></ul>
+    <button id="compare-btn" class="primary" disabled>並べて比較 →</button>
+  </aside>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

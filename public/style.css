@@ -1,0 +1,203 @@
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #1d2330;
+  --muted: #6b7280;
+  --line: #d9dde3;
+  --accent: #0b6e69;
+  --accent-text: #ffffff;
+  --head-bg: #eef3f3;
+  --label-bg: #f1f3f6;
+  --sub-bg: #f8f9fb;
+  --warn: #b42318;
+  --label-w: 11rem;
+  --col-min: 19rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c;
+    --surface: #1c2027;
+    --text: #e6e8eb;
+    --muted: #9aa3ae;
+    --line: #333a45;
+    --accent: #3fb5ad;
+    --accent-text: #0b1214;
+    --head-bg: #1f2b2d;
+    --label-bg: #232831;
+    --sub-bg: #20252d;
+    --warn: #f97066;
+  }
+  img.fig, img.inline { background: #fff; }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+button, select, input { font: inherit; color: inherit; }
+button {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 0.3rem 0.8rem;
+  cursor: pointer;
+}
+button:disabled { opacity: 0.45; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+select, input[type="search"] {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  max-width: 100%;
+}
+a { color: var(--accent); }
+.muted { color: var(--muted); }
+
+.app-header { padding: 0.8rem 1rem 0.4rem; }
+.app-header h1 { font-size: 1.25rem; margin: 0; }
+.app-header h1 small { font-size: 0.75rem; font-weight: normal; color: var(--muted); margin-left: 0.5rem; }
+.source { margin: 0.2rem 0 0; font-size: 0.78rem; color: var(--muted); }
+
+main { padding: 0 1rem 8rem; }
+
+/* ---------- 検索 */
+.search-form {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  display: grid;
+  gap: 0.5rem;
+  max-width: 52rem;
+}
+.field-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.field-row > label { min-width: 5rem; font-weight: 600; font-size: 0.9rem; }
+.field-row.inline > label + select + label { min-width: auto; margin-left: 0.5rem; }
+#q { flex: 1 1 16rem; }
+#effect { flex: 1 1 16rem; }
+.status { color: var(--muted); font-size: 0.9rem; }
+
+.result-summary { margin: 1rem 0 0.4rem; color: var(--muted); font-size: 0.9rem; }
+.table-scroll { overflow-x: auto; max-width: 100%; }
+.result-table { border-collapse: collapse; background: var(--surface); width: 100%; font-size: 0.9rem; }
+.result-table th, .result-table td { border-bottom: 1px solid var(--line); padding: 0.35rem 0.5rem; text-align: left; vertical-align: top; }
+.result-table th { background: var(--head-bg); white-space: nowrap; }
+.result-table .brand { font-weight: 600; }
+.result-table .company { color: var(--muted); font-size: 0.82rem; }
+.result-table .date { white-space: nowrap; color: var(--muted); }
+.add-btn { white-space: nowrap; }
+.pager { display: flex; gap: 0.5rem; margin-top: 0.6rem; }
+
+/* ---------- 選択トレイ */
+.tray {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -2px 8px rgb(0 0 0 / 8%);
+  padding: 0.5rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  z-index: 20;
+}
+#view-compare:not([hidden]) ~ .tray, body:has(#view-compare:not([hidden])) .tray { display: none; }
+.tray-head { font-weight: 600; font-size: 0.9rem; white-space: nowrap; }
+#tray-count { color: var(--muted); font-weight: normal; }
+#tray-list { list-style: none; margin: 0; padding: 0; display: flex; gap: 0.4rem; flex-wrap: wrap; flex: 1 1 20rem; }
+.tray.empty #tray-list::after { content: "検索結果の「追加」で最大 5 品目まで選べます"; color: var(--muted); font-size: 0.85rem; }
+.chip { display: flex; align-items: center; gap: 0.2rem; background: var(--head-bg); border: 1px solid var(--line); border-radius: 999px; padding: 0.1rem 0.2rem 0.1rem 0.7rem; font-size: 0.85rem; max-width: 22rem; }
+.chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-x { border: none; background: none; padding: 0 0.4rem; font-size: 1rem; line-height: 1; }
+
+/* ---------- 比較 */
+.toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.toolbar .check { font-size: 0.9rem; display: flex; align-items: center; gap: 0.3rem; }
+.progress-box { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.4rem 1rem; margin-bottom: 0.5rem; font-size: 0.9rem; }
+.progress-box ul { margin: 0; padding-left: 1.2rem; }
+.progress-box .error { color: var(--warn); }
+
+/* 1 つのグリッドに全品目を並べるので、同じ項目は必ず同じ高さの行に揃い、
+   縦スクロールも全列で同期する。見出し行と項目列は sticky で固定する。 */
+.grid {
+  display: grid;
+  grid-template-columns: var(--label-w) repeat(var(--cols, 1), minmax(var(--col-min), 1fr));
+  overflow: auto;
+  height: calc(100vh - 9.5rem);
+  min-height: 20rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.cell { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 0.5rem 0.7rem; min-width: 0; }
+.sticky-top { position: sticky; top: 0; z-index: 3; }
+.sticky-left { position: sticky; left: 0; z-index: 2; }
+.corner { z-index: 4; background: var(--head-bg); font-weight: 600; }
+.col-head { background: var(--head-bg); box-shadow: 0 1px 0 var(--line); }
+.col-brand { font-weight: 700; line-height: 1.4; }
+.col-company, .col-rev { font-size: 0.8rem; color: var(--muted); }
+.col-note { font-size: 0.8rem; color: var(--warn); }
+.col-links { display: flex; gap: 0.6rem; align-items: center; margin-top: 0.2rem; font-size: 0.85rem; }
+.col-remove { margin-left: auto; padding: 0.05rem 0.5rem; font-size: 0.8rem; }
+
+.row-label { background: var(--label-bg); }
+.row-label.sub { background: var(--sub-bg); }
+.row-toggle { border: none; background: none; padding: 0; text-align: left; display: flex; gap: 0.4rem; width: 100%; font-weight: 600; font-size: 0.9rem; line-height: 1.4; }
+/* 長い行でも項目名が見えるよう、見出し行の直下に貼り付ける */
+.row-toggle { position: sticky; top: calc(var(--head-h, 0px) + 0.5rem); }
+.row-label.sub .row-toggle { padding-left: 0.6rem; font-weight: 500; }
+.row-num { color: var(--accent); min-width: 2.2rem; flex: none; }
+.row-label.collapsed .row-toggle::after { content: "＋"; margin-left: auto; color: var(--muted); }
+.body.collapsed { max-height: 4.8em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
+.body.none { color: var(--muted); }
+.heading-only { padding-top: 0.3rem; padding-bottom: 0.3rem; background: var(--label-bg); }
+.cell.same:not(.row-label) { background: color-mix(in srgb, var(--surface) 92%, var(--accent)); }
+.grid.hide-same .same { display: none; }
+
+/* ---------- 添付文書本文 */
+.body { font-size: 0.9rem; overflow-wrap: anywhere; }
+.detail { margin: 0.15rem 0; }
+.hdr { font-weight: 700; margin-top: 0.4rem; }
+.subhead { font-weight: 700; margin: 0.6rem 0 0.2rem; color: var(--accent); }
+ol.ordered { list-style: none; padding: 0; margin: 0.2rem 0; }
+ol.ordered > li { display: flex; gap: 0.4rem; margin: 0.25rem 0; }
+ol.ordered .num { color: var(--accent); font-weight: 600; flex: none; min-width: 2.6rem; }
+ol.ordered .item-body { flex: 1; min-width: 0; }
+ul.unordered { margin: 0.2rem 0; padding-left: 1.2rem; }
+ul.simple { list-style: none; margin: 0.1rem 0; padding-left: 1rem; }
+.xref { color: var(--muted); font-size: 0.8em; white-space: nowrap; }
+sup.lit, sup.note { color: var(--muted); }
+.comment { font-size: 0.85em; color: var(--muted); }
+.pi-table { border-collapse: collapse; width: 100%; margin: 0.3rem 0; font-size: 0.85rem; }
+.pi-table th, .pi-table td { border: 1px solid var(--line); padding: 0.25rem 0.4rem; vertical-align: top; }
+.pi-table th { background: var(--label-bg); text-align: left; }
+.tbl-caption, figcaption { font-size: 0.85em; font-weight: 600; margin-top: 0.4rem; }
+.tbl-foot { font-size: 0.8em; color: var(--muted); }
+figure { margin: 0.5rem 0; }
+img.fig { max-width: 100%; height: auto; display: block; margin-top: 0.2rem; }
+img.inline { max-height: 1.6em; vertical-align: middle; }
+.brand-block + .brand-block { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px dashed var(--line); }
+.brand-name { font-weight: 700; }
+.field { display: grid; grid-template-columns: 6.5rem 1fr; gap: 0.4rem; margin: 0.1rem 0; }
+.field .field { grid-template-columns: 4rem 1fr; }
+.field-label { color: var(--muted); font-size: 0.85em; }
+.field-value { min-width: 0; }
+
+@media (max-width: 640px) {
+  :root { --label-w: 6.5rem; --col-min: 15rem; }
+  main { padding: 0 0.6rem 9rem; }
+  .grid { height: calc(100vh - 12rem); }
+  .field { grid-template-columns: 1fr; gap: 0; }
+}
+.code + .code::before { content: "、"; }
+.pi-table tbody th { min-width: 4.5em; }

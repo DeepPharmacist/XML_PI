@@ -1,0 +1,12 @@
+{
+  "name": "XML_PI",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": {
+      "label": "添付文書 比較ビューア",
+      "onAutoForward": "openBrowser"
+    }
+  },
+  "postAttachCommand": "python server.py"
+}
