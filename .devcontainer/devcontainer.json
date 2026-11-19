@@ -8,5 +8,5 @@
       "onAutoForward": "openBrowser"
     }
   },
-  "postAttachCommand": "python server.py"
+  "postAttachCommand": "cd codespaces && python server.py"
 }
