@@ -1,0 +1,27 @@
+# Render Blueprint（Render 版 XML_PI）
+# Render のダッシュボードで New → Blueprint を選び、このリポジトリを指定すると作成されます。
+# 中身は render/ フォルダだけを使います（Codespaces 版の codespaces/ は使いません）。
+services:
+  - type: web
+    name: xml-pi
+    runtime: python
+    rootDir: render
+    plan: free
+    region: singapore
+    buildCommand: "echo 'no dependencies (standard library only)'"
+    startCommand: python server.py
+    healthCheckPath: /healthz
+    autoDeploy: true
+    buildFilter:
+      paths:
+        - render/**
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: PMDA_MIN_INTERVAL
+        value: "1.0"
+      # 次の 2 つは作成時に Render の画面で入力します（リポジトリには書きません）
+      - key: APP_USER
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
