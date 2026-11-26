@@ -16,12 +16,14 @@ PMDA への負荷を抑えるため、
 Render 版は URL がインターネットに公開されるため、Codespaces 版に次を加えている。
   - 0.0.0.0 で待ち受け、ポートは Render が渡す環境変数 PORT を使う
   - 環境変数 APP_USER / APP_PASSWORD による Basic 認証（未設定なら起動しない）
+  - 環境変数 APP_TEST_USERS で、ユーザーテスト用のアカウントを追加できる（有効期限つき可）
   - /healthz だけは認証なしで 200 を返す（Render のヘルスチェック用）
   - 検索エンジンに載らないよう X-Robots-Tag: noindex を付ける
   - 内部エラーの詳細は画面に返さず、ログにだけ出す
 """
 
 import base64
+import datetime
 import hmac
 import html
 import http.cookiejar
@@ -49,6 +51,12 @@ DOC_CACHE_MAX = 30
 USER_AGENT = "XML_PI-prototype/0.1 (personal development use; Render)"
 APP_USER = os.environ.get("APP_USER", "")
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
+# ユーザーテスト用アカウント。「名前:合言葉:有効期限」をカンマで区切って並べる（有効期限は省略可）。
+#   例）APP_TEST_USERS=tester1:Xk3...:2026-12-31,tester2:Pq9...
+# 有効期限の日は日本時間の 23:59 まで使える。削除するときはその 1 件を消して保存する。
+APP_TEST_USERS = os.environ.get("APP_TEST_USERS", "")
+TEST_PASSWORD_MIN = 12
+JST = datetime.timezone(datetime.timedelta(hours=9))
 PUBLIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
 
 DOC_ID_RE = re.compile(r"^\d{6}_[0-9A-Z]{12}_\d+_\d+$")
@@ -276,14 +284,72 @@ def doc_json(doc_id):
     }
 
 
+# ---------------------------------------------------------------- アカウント
+
+def parse_test_users(spec):
+    """APP_TEST_USERS を {名前: (合言葉, 有効期限 date|None)} にする。書式が不正な行は飛ばしてログに出す。"""
+    users = {}
+    for i, raw in enumerate(spec.split(","), 1):
+        entry = raw.strip()
+        if not entry:
+            continue
+        parts = entry.split(":")
+        if len(parts) not in (2, 3) or not parts[0] or not parts[1]:
+            print(f"XML_PI: APP_TEST_USERS の {i} 件目は「名前:合言葉」または「名前:合言葉:YYYY-MM-DD」の形ではないので無視します", flush=True)
+            continue
+        name, password = parts[0].strip(), parts[1]
+        expires = None
+        if len(parts) == 3 and parts[2].strip():
+            try:
+                expires = datetime.date.fromisoformat(parts[2].strip())
+            except ValueError:
+                print(f"XML_PI: テスト用アカウント {name} の有効期限 {parts[2]!r} が日付ではないので無視します", flush=True)
+                continue
+        if len(password) < TEST_PASSWORD_MIN:
+            print(f"XML_PI: テスト用アカウント {name} の合言葉が {TEST_PASSWORD_MIN} 文字未満なので無視します", flush=True)
+            continue
+        if name == APP_USER or name in users:
+            print(f"XML_PI: テスト用アカウント {name} は名前が重複しているので無視します", flush=True)
+            continue
+        users[name] = (password, expires)
+    return users
+
+
+def build_accounts():
+    accounts = {APP_USER: (APP_PASSWORD, None)}
+    accounts.update(parse_test_users(APP_TEST_USERS))
+    return accounts
+
+
+ACCOUNTS = build_accounts()
+
+
+def check_login(user, password):
+    """認証が通ればアカウント名、通らなければ None。期限切れも None。"""
+    found = None
+    for name, (pw, expires) in ACCOUNTS.items():
+        # 全アカウントを同じ手順で比べ、どの名前が存在するか応答時間から分からないようにする
+        ok = hmac.compare_digest(user.encode(), name.encode()) & hmac.compare_digest(password.encode(), pw.encode())
+        if ok:
+            found = (name, expires)
+    if not found:
+        return None
+    name, expires = found
+    if expires and datetime.datetime.now(JST).date() > expires:
+        return None
+    return name
+
+
 # ---------------------------------------------------------------- HTTP
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=PUBLIC_DIR, **kwargs)
 
+    auth_user = "-"
+
     def log_message(self, fmt, *args):
-        print("%s %s" % (self.log_date_time_string(), fmt % args), flush=True)
+        print("%s [%s] %s" % (self.log_date_time_string(), self.auth_user, fmt % args), flush=True)
 
     def end_headers(self):
         self.send_header("X-Robots-Tag", "noindex, nofollow")
@@ -298,9 +364,9 @@ class Handler(SimpleHTTPRequestHandler):
                 user, _, password = base64.b64decode(header[6:]).decode("utf-8").partition(":")
             except (ValueError, UnicodeDecodeError):
                 user, password = "", ""
-            ok_user = hmac.compare_digest(user.encode(), APP_USER.encode())
-            ok_pass = hmac.compare_digest(password.encode(), APP_PASSWORD.encode())
-            if ok_user and ok_pass:
+            name = check_login(user, password)
+            if name:
+                self.auth_user = name
                 return True
         body = "認証が必要です".encode("utf-8")
         self.send_response(401)
@@ -398,6 +464,10 @@ class Handler(SimpleHTTPRequestHandler):
 def main():
     if not APP_USER or not APP_PASSWORD:
         sys.exit("XML_PI: 環境変数 APP_USER と APP_PASSWORD を設定してください（Render 版は認証なしでは起動しません）")
+    tests = [n for n in ACCOUNTS if n != APP_USER]
+    for name in tests:
+        expires = ACCOUNTS[name][1]
+        print(f"XML_PI: テスト用アカウント {name}（有効期限: {expires or 'なし'}）", flush=True)
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"XML_PI: {HOST}:{PORT} で起動しました（Ctrl+C で終了）", flush=True)
     try:
