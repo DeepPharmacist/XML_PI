@@ -49,8 +49,8 @@ DOC_TTL = 30 * 60      # 添付文書キャッシュ（秒）
 SEARCH_TTL = 10 * 60   # 検索結果キャッシュ（秒）
 DOC_CACHE_MAX = 30
 USER_AGENT = "XML_PI-prototype/0.1 (personal development use; Render)"
-APP_USER = os.environ.get("APP_USER", "")
-APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
+APP_USER = os.environ.get("APP_USER", "").strip()
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
 # ユーザーテスト用アカウント。「名前:合言葉:有効期限」をカンマで区切って並べる（有効期限は省略可）。
 #   例）APP_TEST_USERS=tester1:Xk3...:2026-12-31,tester2:Pq9...
 # 有効期限の日は日本時間の 23:59 まで使える。削除するときはその 1 件を消して保存する。
@@ -289,19 +289,21 @@ def doc_json(doc_id):
 def parse_test_users(spec):
     """APP_TEST_USERS を {名前: (合言葉, 有効期限 date|None)} にする。書式が不正な行は飛ばしてログに出す。"""
     users = {}
+    # 全角の区切り（：，、）や改行も受け付ける
+    spec = spec.replace("：", ":").replace("，", ",").replace("、", ",").replace("\n", ",").replace("\r", ",")
     for i, raw in enumerate(spec.split(","), 1):
         entry = raw.strip()
         if not entry:
             continue
-        parts = entry.split(":")
+        parts = [x.strip() for x in entry.split(":")]
         if len(parts) not in (2, 3) or not parts[0] or not parts[1]:
             print(f"XML_PI: APP_TEST_USERS の {i} 件目は「名前:合言葉」または「名前:合言葉:YYYY-MM-DD」の形ではないので無視します", flush=True)
             continue
-        name, password = parts[0].strip(), parts[1]
+        name, password = parts[0], parts[1]
         expires = None
-        if len(parts) == 3 and parts[2].strip():
+        if len(parts) == 3 and parts[2]:
             try:
-                expires = datetime.date.fromisoformat(parts[2].strip())
+                expires = datetime.date.fromisoformat(parts[2].replace("/", "-"))
             except ValueError:
                 print(f"XML_PI: テスト用アカウント {name} の有効期限 {parts[2]!r} が日付ではないので無視します", flush=True)
                 continue
@@ -325,7 +327,8 @@ ACCOUNTS = build_accounts()
 
 
 def check_login(user, password):
-    """認証が通ればアカウント名、通らなければ None。期限切れも None。"""
+    """認証が通ればアカウント名、通らなければ None。期限切れも None。失敗の理由はログに出す。"""
+    user = user.strip()
     found = None
     for name, (pw, expires) in ACCOUNTS.items():
         # 全アカウントを同じ手順で比べ、どの名前が存在するか応答時間から分からないようにする
@@ -333,9 +336,12 @@ def check_login(user, password):
         if ok:
             found = (name, expires)
     if not found:
+        reason = "合言葉が違います" if user in ACCOUNTS else "その名前のアカウントはありません"
+        print(f"XML_PI: ログイン失敗 名前={user!r}（{reason}、入力された合言葉は {len(password)} 文字）", flush=True)
         return None
     name, expires = found
     if expires and datetime.datetime.now(JST).date() > expires:
+        print(f"XML_PI: ログイン失敗 名前={name!r}（有効期限 {expires} を過ぎています）", flush=True)
         return None
     return name
 
