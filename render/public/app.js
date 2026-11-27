@@ -431,7 +431,18 @@ async function showCompare(ids) {
     $("#progress-box").hidden = !$("#progress .error");
     renderCompare(state.docs);
     history.replaceState(null, "", `#compare=${state.docs.map((d) => d.docId).join(",")}`);
+    recordCompare(state.docs);
   }
+}
+
+// どの品目を並べたかをサーバーの操作記録に残す（Render 版のみ）。失敗しても画面には影響させない
+function recordCompare(docs) {
+  const items = docs.map((d) => ({ docId: d.docId, brand: d.meta.brand || "", company: d.meta.company || "" }));
+  fetch("/api/event", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "compare", items }),
+  }).catch(() => { /* 記録できなくても比較表示は続ける */ });
 }
 
 function init() {

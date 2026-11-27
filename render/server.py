@@ -20,6 +20,8 @@ Render 版は URL がインターネットに公開されるため、Codespaces 
   - /healthz だけは認証なしで 200 を返す（Render のヘルスチェック用）
   - 検索エンジンに載らないよう X-Robots-Tag: noindex を付ける
   - 内部エラーの詳細は画面に返さず、ログにだけ出す
+  - 誰が・いつ・何を検索し、どの品目を並べて比較したかを記録する（操作記録）。
+    Render のログに出し、SHEETS_WEBHOOK_URL を設定すれば Google スプレッドシートにも書き足す
 """
 
 import base64
@@ -31,6 +33,7 @@ import io
 import json
 import mimetypes
 import os
+import queue
 import re
 import sys
 import threading
@@ -39,6 +42,7 @@ import time
 import urllib.parse
 import urllib.request
 import zipfile
+import xml.etree.ElementTree as ET
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 PMDA = "https://www.pmda.go.jp"
@@ -56,6 +60,9 @@ APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
 # 有効期限の日は日本時間の 23:59 まで使える。削除するときはその 1 件を消して保存する。
 APP_TEST_USERS = os.environ.get("APP_TEST_USERS", "")
 TEST_PASSWORD_MIN = 12
+# 操作記録を送る Google Apps Script（ウェブアプリ）の URL と、照合用の合言葉。未設定なら送らない。
+SHEETS_WEBHOOK_URL = os.environ.get("SHEETS_WEBHOOK_URL", "").strip()
+SHEETS_TOKEN = os.environ.get("SHEETS_TOKEN", "").strip()
 JST = datetime.timezone(datetime.timedelta(hours=9))
 PUBLIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
 
@@ -284,6 +291,82 @@ def doc_json(doc_id):
     }
 
 
+def brand_names(doc_id):
+    """取得済みの XML から販売名（ApprovalBrandName）を取り出す。未取得なら空リスト。PMDA には問い合わせない。"""
+    hit = doc_cache.get(doc_id)
+    if not hit:
+        return []
+    _, zf = hit
+    xml_name = next((n for n in zf.namelist() if n.lower().endswith(".xml")), None)
+    if not xml_name:
+        return []
+    try:
+        root = ET.fromstring(zf.read(xml_name))
+    except ET.ParseError:
+        return []
+    names = []
+    for el in root.iter():
+        if el.tag.rsplit("}", 1)[-1] == "ApprovalBrandName":
+            text = "".join(el.itertext()).strip()
+            if text and text not in names:
+                names.append(text)
+    return names
+
+
+# ---------------------------------------------------------------- 操作記録
+
+USAGE_HEADER = ["日時（日本時間）", "アカウント", "操作", "内容", "品目数", "文書ID"]
+_sheet_queue = queue.Queue(maxsize=2000)
+
+
+def record_usage(user, action, content, count="", doc_ids=""):
+    """操作記録を 1 件残す。Render のログに出し、設定があればスプレッドシート送信の列に積む。"""
+    now = datetime.datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")
+    row = [now, user, action, content, count, doc_ids]
+    print(f"XML_PI: 操作記録 [{user}] {action}：{content}" + (f"（{count} 件）" if count != "" else ""), flush=True)
+    if SHEETS_WEBHOOK_URL:
+        try:
+            _sheet_queue.put_nowait(row)
+        except queue.Full:
+            print("XML_PI: スプレッドシート送信待ちがいっぱいのため、1 件を送らずに捨てました", flush=True)
+
+
+def _post_rows(rows):
+    data = json.dumps({"token": SHEETS_TOKEN, "rows": rows}, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(SHEETS_WEBHOOK_URL, data=data,
+                                 headers={"Content-Type": "application/json", "User-Agent": USER_AGENT})
+    # Apps Script は POST を受けたあと別の URL へ転送して結果を返す（urllib が自動で GET でたどる）
+    with urllib.request.urlopen(req, timeout=30) as res:
+        body = res.read().decode("utf-8", "replace")
+    try:
+        result = json.loads(body)
+    except ValueError:
+        raise RuntimeError(f"応答が JSON ではありません: {body[:120]!r}")
+    if not result.get("ok"):
+        raise RuntimeError(f"Apps Script がエラーを返しました: {result.get('error')}")
+
+
+def _sheet_worker():
+    """送信待ちの記録をまとめてスプレッドシートへ送る。失敗したら間隔を空けて 3 回まで再送する。"""
+    while True:
+        rows = [_sheet_queue.get()]
+        time.sleep(2)  # 続けて起きた操作を 1 回の送信にまとめる
+        while len(rows) < 50:
+            try:
+                rows.append(_sheet_queue.get_nowait())
+            except queue.Empty:
+                break
+        for attempt in range(3):
+            try:
+                _post_rows(rows)
+                break
+            except Exception as e:  # noqa: BLE001
+                print(f"XML_PI: スプレッドシートへの送信に失敗しました（{attempt + 1} 回目）: {e}", flush=True)
+                time.sleep(10 * (attempt + 1))
+        else:
+            print(f"XML_PI: {len(rows)} 件をスプレッドシートに送れませんでした（Render のログには残っています）", flush=True)
+
+
 # ---------------------------------------------------------------- アカウント
 
 def parse_test_users(spec):
@@ -430,6 +513,38 @@ class Handler(SimpleHTTPRequestHandler):
             traceback.print_exc()
             self.send_json(500, {"error": "サーバー内部エラーが発生しました"})
 
+    def do_POST(self):
+        if not self.authorized():
+            return
+        if urllib.parse.urlsplit(self.path).path != "/api/event":
+            return self.send_json(404, {"error": "不明な API です"})
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        if not 0 < length <= 10_000:
+            return self.send_json(400, {"error": "内容が空か、大きすぎます"})
+        try:
+            event = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return self.send_json(400, {"error": "JSON ではありません"})
+        if not isinstance(event, dict) or event.get("type") != "compare" or not isinstance(event.get("items"), list):
+            return self.send_json(400, {"error": "記録できない操作です"})
+        labels, ids = [], []
+        for item in event["items"][:5]:
+            if not isinstance(item, dict) or not DOC_ID_RE.match(str(item.get("docId", ""))):
+                continue
+            doc_id = item["docId"]
+            # 販売名はサーバーが取得済みの XML から取る。会社名は画面が検索結果から持っている値（参考）
+            brands = brand_names(doc_id) or [str(item.get("brand", ""))[:80] or doc_id]
+            company = str(item.get("company", ""))[:60].strip()
+            labels.append(" / ".join(brands) + (f"（{company}）" if company else ""))
+            ids.append(doc_id)
+        if not ids:
+            return self.send_json(400, {"error": "品目がありません"})
+        record_usage(self.auth_user, "比較表示", "／".join(labels), len(ids), " ".join(ids))
+        return self.send_json(200, {"ok": True})
+
     def handle_api(self, url):
         parts = url.path.strip("/").split("/")
         if parts == ["api", "search"]:
@@ -443,7 +558,11 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(400, {"error": "薬効分類の指定が不正です"})
             if not q and not effect:
                 return self.send_json(400, {"error": "名称か薬効分類を指定してください"})
-            return self.send_json(200, search(q, target, match, effect, page))
+            result = search(q, target, match, effect, page)
+            if page == 1:
+                label = "、".join(x for x in [f"「{q}」" if q else "", f"薬効分類 {effect}" if effect else ""] if x)
+                record_usage(self.auth_user, "検索", label, result["total"])
+            return self.send_json(200, result)
 
         if len(parts) >= 3 and parts[:2] == ["api", "doc"]:
             doc_id = parts[2]
@@ -474,6 +593,13 @@ def main():
     for name in tests:
         expires = ACCOUNTS[name][1]
         print(f"XML_PI: テスト用アカウント {name}（有効期限: {expires or 'なし'}）", flush=True)
+    if SHEETS_WEBHOOK_URL:
+        if not SHEETS_TOKEN:
+            print("XML_PI: SHEETS_TOKEN が未設定のため、スプレッドシートには送りません", flush=True)
+            globals()["SHEETS_WEBHOOK_URL"] = ""
+        else:
+            threading.Thread(target=_sheet_worker, daemon=True).start()
+            print("XML_PI: 操作記録をスプレッドシートにも送ります", flush=True)
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"XML_PI: {HOST}:{PORT} で起動しました（Ctrl+C で終了）", flush=True)
     try:
